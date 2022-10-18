@@ -1,47 +1,46 @@
-import pandas as pd, numpy as np, matplotlib.pyplot as plt
-from empyrical import max_drawdown, annual_return, cagr, omega_ratio
-from matplotlib.ticker import FixedLocator
-from scipy.stats import geom
-import math
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import streamlit as st
-from matplotlib.pyplot import rc
 from PIL import Image
+from empyrical import max_drawdown, omega_ratio
+from matplotlib.pyplot import rc
+from scipy.stats import geom
 
-df = pd.read_excel('stocks_bonds.xls', sheet_name = 'Returns by year', header = 17, usecols = 'A,B,D')
+df = pd.read_excel('stocks_bonds.xls', sheet_name='Returns by year', header=17, usecols='A,B,D')
 gold = pd.read_csv('gold_1950.csv')
-gold.set_index('Date', inplace = True)
+gold.set_index('Date', inplace=True)
 gold.index = pd.to_datetime(gold.index).to_period()
 
 df1 = df[:91]
-df1.set_index('Year', inplace = True)
+df1.set_index('Year', inplace=True)
 
 gold_ret = gold.pct_change()[1:]
-gold_ret.rename(columns = {'Price': 'Gold Pct change'}, inplace= True)
+gold_ret.rename(columns={'Price': 'Gold Pct change'}, inplace=True)
 
 df1.index = pd.to_datetime(df1.index.map(str)).to_period()
 
 common_index = gold_ret.index.intersection(df1.index)
 
-overall = pd.concat([df1.loc[common_index], gold_ret], axis = 1)
-
+overall = pd.concat([df1.loc[common_index], gold_ret], axis=1)
 
 
 def set_pub():
-    font = {'family' : 'normal', 'weight':'bold'}
-    rc('font', **font)    # bold fonts are easier to see
-    #rc('grid', c='0.5', ls='-', lw=0.5)
-    rc('figure', figsize = (18,14))
-    plt.style.use('fivethirtyeight') #'fivethirtyeight'
+    font = {'family': 'normal', 'weight': 'bold'}
+    rc('font', **font)  # bold fonts are easier to see
+    # rc('grid', c='0.5', ls='-', lw=0.5)
+    rc('figure', figsize=(18, 14))
+    plt.style.use('fivethirtyeight')  # 'fivethirtyeight'
     rc('lines', linewidth=3.2, color='b')
 
-class portfolio_stationaryBootstrap:
 
+class portfolio_stationaryBootstrap:
     set_pub()
     TER = 0.006
 
     def __init__(self, data, w1_stock, w2_bond, w3_gold,
-                 capital = 20000, holding_period = 10,
-                 mean_block_length = 3, stress_test_frequency = False, stress_test_intensity = 1):
+                 capital=20000, holding_period=10,
+                 mean_block_length=3, stress_test_frequency=False, stress_test_intensity=1):
         self.data = data
         self.w1_stock = w1_stock
         self.w2_bond = w2_bond
@@ -61,25 +60,25 @@ class portfolio_stationaryBootstrap:
             index_start = self.data.index.get_loc(index_start)
             L_i = self.holding_period + 1
             while L_i > self.holding_period:
-                L_i = geom.rvs(p = 1/self.mean_block_length)
+                L_i = geom.rvs(p=1 / self.mean_block_length)
             cumulative_lengths.append(L_i)
             if sum(cumulative_lengths) > self.holding_period:
                 L_final = self.holding_period - sum(cumulative_lengths[:-1])
                 if L_final > len(self.data) - index_start:
                     diff = L_final - (len(self.data) - index_start)
-                    subsample_generated = self.data.iloc[index_start-diff: (index_start-diff + L_final), :]
+                    subsample_generated = self.data.iloc[index_start - diff: (index_start - diff + L_final), :]
                 else:
                     subsample_generated = self.data.iloc[index_start: index_start + L_final, :]
                 data_panel.append(subsample_generated)
                 break
             else:
                 subsample_generated = self.data.iloc[index_start: index_start + L_i, :]
-                if L_i > len(self.data) - index_start :
+                if L_i > len(self.data) - index_start:
                     L_i = len(self.data) - index_start
                 data_panel.append(subsample_generated)
                 cumulative_lengths[-1] = L_i
 
-        bootstrapSample = pd.concat([subsample for subsample in data_panel], axis = 0, ignore_index = True)
+        bootstrapSample = pd.concat([subsample for subsample in data_panel], axis=0, ignore_index=True)
 
         if self.stress_freq:
             historical_ret_by_year = self.data @ np.array([self.w1_stock, self.w2_bond, self.w3_gold]).T
@@ -88,22 +87,22 @@ class portfolio_stationaryBootstrap:
                 extreme_event_dummy = True if np.random.rand() < 0.05 else False
                 if extreme_event_dummy:
                     if self.stress_intensity == 1:
-                        bootstrapSample.iloc[i,:] = self.data.loc[year_min_ret,:]
+                        bootstrapSample.iloc[i, :] = self.data.loc[year_min_ret, :]
                     else:
-                        bootstrapSample.iloc[i,:] = self.data.loc[year_min_ret,:]
-                        bootstrapSample.iloc[i,:] *= 1.5
+                        bootstrapSample.iloc[i, :] = self.data.loc[year_min_ret, :]
+                        bootstrapSample.iloc[i, :] *= 1.5
 
         total_ret_by_year = bootstrapSample @ np.array([self.w1_stock, self.w2_bond, self.w3_gold]).T
         total_ret_by_year -= self.TER
 
         portfolio_path = self.capital * np.cumprod(total_ret_by_year + 1)
 
-        cagr = (portfolio_path.values[-1] / self.capital) ** (1/self.holding_period) - 1
+        cagr = (portfolio_path.values[-1] / self.capital) ** (1 / self.holding_period) - 1
         annual_volatility = total_ret_by_year.std()
         maxDrawdown = max_drawdown(pd.Series(total_ret_by_year))
-        omega_ratio2 = omega_ratio(pd.Series(total_ret_by_year), required_return = 0.02, annualization = 1)
-        omega_ratio4 = omega_ratio(pd.Series(total_ret_by_year), required_return = 0.04, annualization = 1)
-        omega_ratio8 = omega_ratio(pd.Series(total_ret_by_year), required_return = 0.08, annualization = 1)
+        omega_ratio2 = omega_ratio(pd.Series(total_ret_by_year), required_return=0.02, annualization=1)
+        omega_ratio4 = omega_ratio(pd.Series(total_ret_by_year), required_return=0.04, annualization=1)
+        omega_ratio8 = omega_ratio(pd.Series(total_ret_by_year), required_return=0.08, annualization=1)
         return (np.insert(portfolio_path.values, 0, self.capital), cagr, annual_volatility, maxDrawdown,
                 omega_ratio2, omega_ratio4, omega_ratio8)
 
@@ -128,7 +127,7 @@ class portfolio_stationaryBootstrap:
             OR_8.append(omega_ratio8)
             max_drawdown_s.append(md)
             ax.plot(path, '--')
-        worst_portfolios = sorted(np.array(portfolio_s), key = lambda array: array[-1])
+        worst_portfolios = sorted(np.array(portfolio_s), key=lambda array: array[-1])
         worst_5percent = np.array(worst_portfolios)[:, -1]
         max_drawdown_s = np.array(max_drawdown_s)
 
@@ -144,94 +143,113 @@ class portfolio_stationaryBootstrap:
         mean_vol = np.array(vol_s).mean()
 
         VaR95 = np.percentile(cagr_s, 5)
-        CVaR95 = cagr_s[ cagr_s <= VaR95].mean()
+        CVaR95 = cagr_s[cagr_s <= VaR95].mean()
 
-        if self.capital - np.array(worst_portfolios)[0,-1] > 0:
-            max_loss = self.capital - np.array(worst_portfolios)[0,-1]
+        if self.capital - np.array(worst_portfolios)[0, -1] > 0:
+            max_loss = self.capital - np.array(worst_portfolios)[0, -1]
         else:
             max_loss = 0
 
         loss_probability = (cagr_s < 0).sum() / len(cagr_s)
 
-        fig.suptitle('Portfolio: {}% stocks - {}% bonds - {}% gold'.format(int(100*self.w1_stock), int(100*self.w2_bond), int(100*self.w3_gold)), size = 40)
-        ax.set_title('%d stationary bootstrap runs' % N_sim, fontsize = 32)
-        mean_sharpeRatio= round(mean_cagr / mean_vol, 3)
+        fig.suptitle(
+            'Portfolio: {}% stocks - {}% bonds - {}% gold'.format(int(100 * self.w1_stock), int(100 * self.w2_bond),
+                                                                  int(100 * self.w3_gold)), size=40)
+        ax.set_title('%d stationary bootstrap runs' % N_sim, fontsize=32)
+        mean_sharpeRatio = round(mean_cagr / mean_vol, 3)
         stress_severity = None if self.stress_freq == False else ('High' if self.stress_intensity == 1.5 else 'Normal')
         ax.legend(['Initial Capital in t_0 = {} $ \
                    \nHolding period = {} years \
                    \nStress Test = {} \
-                   \nStress Severity = {}'.format(self.capital, self.holding_period, self.stress_freq, stress_severity)],
-                    handletextpad=2.0, handlelength=0, ncol = 1, prop={'size': 22});
+                   \nStress Severity = {}'.format(self.capital, self.holding_period, self.stress_freq,
+                                                  stress_severity)],
+                  handletextpad=2.0, handlelength=0, ncol=1, prop={'size': 22});
 
-        ax.set_xlabel('Year', fontsize = 24, labelpad = 12)
-        ax.set_ylabel('Portfolio $', fontsize = 24, labelpad = 1)
-        ax.axhline(self.capital, color = 'k', linewidth=1)
+        ax.set_xlabel('Year', fontsize=24, labelpad=12)
+        ax.set_ylabel('Portfolio $', fontsize=24, labelpad=1)
+        ax.axhline(self.capital, color='k', linewidth=1)
         ax.tick_params(axis='both', which='major', labelsize=16)
         yt = ax.get_yticks()
         yt = np.append(yt, self.capital)
         ax.set_yticks(yt)
         st.pyplot()
 
-        values = [self.capital, N_sim, self.holding_period, self.TER, round(mean_cagr,3)*100, round(vol_cagr,3)*100, round(worst_cagr,3)*100, round(best_cagr,3)*100, round(mean_sharpeRatio,3)
-                    ,round(loss_probability, 3)*100, round(max_loss, 3)]
+        values = [self.capital, N_sim, self.holding_period, self.TER, round(mean_cagr, 3) * 100,
+                  round(vol_cagr, 3) * 100, round(worst_cagr, 3) * 100, round(best_cagr, 3) * 100,
+                  round(mean_sharpeRatio, 3)
+            , round(loss_probability, 3) * 100, round(max_loss, 3)]
         df = pd.DataFrame(values)
 
         df.index = ['Initial Capital', 'N° simulations', 'Holding period', 'Total Expense Ratio',
-                      'Average CAGR', 'Volatility CAGR', 'Worst CAGR', 'Best CAGR',
-                      'Average Geometric Sharpe Ratio', 'Probability CAGR < 0', 'Worst Portfolio Loss' ]
+                    'Average CAGR', 'Volatility CAGR', 'Worst CAGR', 'Best CAGR',
+                    'Average Geometric Sharpe Ratio', 'Probability CAGR < 0', 'Worst Portfolio Loss']
         df.columns = [['Stocks-Bonds-Gold'],
-                    ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock*100), int(self.w2_bond*100), int(self.w3_gold*100))]]
-        df.iloc[:3,:] = df.iloc[:3,:].applymap(lambda x: '{:.0f}'.format(x))
-        df.iloc[3:8,:] = df.iloc[3:8,:].applymap(lambda x: str(round(x,2)) + ' %')
+                      ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock * 100), int(self.w2_bond * 100),
+                                                          int(self.w3_gold * 100))]]
+        df.iloc[:3, :] = df.iloc[:3, :].applymap(lambda x: '{:.0f}'.format(x))
+        df.iloc[3:8, :] = df.iloc[3:8, :].applymap(lambda x: str(round(x, 2)) + ' %')
         df.loc['Total Expense Ratio'] = str(self.TER * 100) + ' %'
 
-        df.loc[['Initial Capital', 'Worst Portfolio Loss']] = df.loc[['Initial Capital', 'Worst Portfolio Loss']].applymap(
-                                                                    lambda x: str(x)+ ' $')
+        df.loc[['Initial Capital', 'Worst Portfolio Loss']] = df.loc[
+            ['Initial Capital', 'Worst Portfolio Loss']].applymap(
+            lambda x: str(x) + ' $')
         df.loc['Holding period'] = df.loc['Holding period'].map(lambda x: str(x) + ' years')
         if df.loc['Probability CAGR < 0'].iloc[0] < 0.000001:
-            df.loc['Probability CAGR < 0'].iloc[0] = 'Low: CAGR < 0 never verified in %d simulations'%N_sim
+            df.loc['Probability CAGR < 0'].iloc[0] = 'Low: CAGR < 0 never verified in %d simulations' % N_sim
         else:
-            df.loc['Probability CAGR < 0'] = df.loc['Probability CAGR < 0'].map(lambda x: str(round(x,2)) + ' %')
+            df.loc['Probability CAGR < 0'] = df.loc['Probability CAGR < 0'].map(lambda x: str(round(x, 2)) + ' %')
 
-        df_MD = pd.DataFrame(100* np.array([max_drawdown_s.mean(), max_drawdown_s.std(),max_drawdown_s.min()]))
-        df_MD = df_MD.applymap(lambda x: str(round(x,2))+' %')
+        df_MD = pd.DataFrame(100 * np.array([max_drawdown_s.mean(), max_drawdown_s.std(), max_drawdown_s.min()]))
+        df_MD = df_MD.applymap(lambda x: str(round(x, 2)) + ' %')
         df_MD.index = ['Max Drawdown Average', 'Max Drawdown Volatility', 'Max Drawdown Min']
         df_MD.columns = [['Stocks-Bonds-Gold'],
-                    ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock*100), int(self.w2_bond*100), int(self.w3_gold*100))]]
+                         ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock * 100), int(self.w2_bond * 100),
+                                                             int(self.w3_gold * 100))]]
 
-        df_OR_2 = pd.DataFrame(np.array([round(np.nanmean(OR_2),2), round(np.nanstd(OR_2),2)]))
+        df_OR_2 = pd.DataFrame(np.array([round(np.nanmean(OR_2), 2), round(np.nanstd(OR_2), 2)]))
         df_OR_2.index = ['Average Omega Ratio(2%)', 'Volatility Omega Ratio(2%)']
         df_OR_2.columns = [['Stocks-Bonds-Gold'],
-                           ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock*100), int(self.w2_bond*100), int(self.w3_gold*100))]]
-        df_OR_4 = pd.DataFrame(np.array([round(np.nanmean(OR_4),2), round(np.nanstd(OR_4),2)]))
+                           ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock * 100), int(self.w2_bond * 100),
+                                                               int(self.w3_gold * 100))]]
+        df_OR_4 = pd.DataFrame(np.array([round(np.nanmean(OR_4), 2), round(np.nanstd(OR_4), 2)]))
         df_OR_4.index = ['Average Omega Ratio(4%)', 'Volatility Omega Ratio(4%)']
         df_OR_4.columns = [['Stocks-Bonds-Gold'],
-                           ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock*100), int(self.w2_bond*100), int(self.w3_gold*100))]]
-        df_OR_8 = pd.DataFrame(np.array([round(np.nanmean(OR_8),2), round(np.nanstd(OR_8),2)]))
+                           ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock * 100), int(self.w2_bond * 100),
+                                                               int(self.w3_gold * 100))]]
+        df_OR_8 = pd.DataFrame(np.array([round(np.nanmean(OR_8), 2), round(np.nanstd(OR_8), 2)]))
         df_OR_8.index = ['Average Omega Ratio(8%)', 'Volatility Omega Ratio(8%)']
         df_OR_8.columns = [['Stocks-Bonds-Gold'],
-                           ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock*100), int(self.w2_bond*100), int(self.w3_gold*100))]]
+                           ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock * 100), int(self.w2_bond * 100),
+                                                               int(self.w3_gold * 100))]]
 
-        df_var = pd.DataFrame(100*np.array([VaR95, CVaR95]))
-        df_var.index = ['VaR(95%) {} years'.format(self.holding_period), 'CVaR(95%) {} years'.format(self.holding_period)]
-        df_var = df_var.applymap(lambda x: str(round(x,2))+' %')
+        df_var = pd.DataFrame(100 * np.array([VaR95, CVaR95]))
+        df_var.index = ['VaR(95%) {} years'.format(self.holding_period),
+                        'CVaR(95%) {} years'.format(self.holding_period)]
+        df_var = df_var.applymap(lambda x: str(round(x, 2)) + ' %')
         df_var.columns = [['Stocks-Bonds-Gold'],
-                           ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock*100), int(self.w2_bond*100), int(self.w3_gold*100))]]
-        total_stats = pd.concat([df, df_MD, df_OR_2, df_OR_4, df_OR_8, df_var], axis = 0)
+                          ['[  {}%  -  {}%  -  {}%  ]'.format(int(self.w1_stock * 100), int(self.w2_bond * 100),
+                                                              int(self.w3_gold * 100))]]
+        total_stats = pd.concat([df, df_MD, df_OR_2, df_OR_4, df_OR_8, df_var], axis=0)
 
         return total_stats
 
-def joint_sim(w1,w2,w3, w11, w22, w33, capital, hp, stress_freq, stress_int):
-    s1 = portfolio_stationaryBootstrap(overall, w1/100, w2/100, w3/100, capital, holding_period = hp, stress_test_frequency = stress_freq, stress_test_intensity = stress_int)
-    s2 = portfolio_stationaryBootstrap(overall, w11/100, w22/100, w33/100, capital, holding_period = hp, stress_test_frequency = stress_freq, stress_test_intensity = stress_int)
+
+def joint_sim(w1, w2, w3, w11, w22, w33, capital, hp, stress_freq, stress_int):
+    s1 = portfolio_stationaryBootstrap(overall, w1 / 100, w2 / 100, w3 / 100, capital, holding_period=hp,
+                                       stress_test_frequency=stress_freq, stress_test_intensity=stress_int)
+    s2 = portfolio_stationaryBootstrap(overall, w11 / 100, w22 / 100, w33 / 100, capital, holding_period=hp,
+                                       stress_test_frequency=stress_freq, stress_test_intensity=stress_int)
+
     def s():
         gen = np.random.choice(1_000_000)
         np.random.seed(gen)
-        a = s1.graph_N_simulation(N_sim = 100)
+        a = s1.graph_N_simulation(N_sim=100)
         np.random.seed(gen)
-        b = s2.graph_N_simulation(N_sim = 100)
-        return a,b
+        b = s2.graph_N_simulation(N_sim=100)
+        return a, b
+
     return s()
+
 
 '''  # How much is the benefit of diversification for a passive portfolio?
 ## We try to quantify it through historical data from 1950 by implementing a stationary bootstrap method.
@@ -251,38 +269,37 @@ always by locking the same stochastic generator for both asset allocations.
 ---
 '''
 
-
 image = Image.open('wallstreet.jpg')
 st.sidebar.image(image, caption='', use_column_width=True)
 
 st.sidebar.header('Build a robust passive portfolio')
 st.sidebar.subheader('Choose the option to visualize')
 
-sim = st.sidebar.checkbox('Simulation', value = True )
-modelrational = st.sidebar.checkbox('The explanation of the method (unselect to come back to simulation)', value = False)
-considerations = st.sidebar.checkbox('Hypothesis and results (unselect to come back to simulation)', value = False)
+sim = st.sidebar.checkbox('Simulation', value=True)
+modelrational = st.sidebar.checkbox('The explanation of the method (unselect to come back to simulation)', value=False)
+considerations = st.sidebar.checkbox('Hypothesis and results (unselect to come back to simulation)', value=False)
 
 if modelrational or considerations:
     sim = False
 
 if sim:
-    capital = st.selectbox('Select the initial capital of both portfolios ', np.array(['20,000$','100,000$','500,000$']))
-    capital = int(capital.replace(',','').replace('$',''))
+    capital = st.selectbox('Select the initial capital of both portfolios ',
+                           np.array(['20,000$', '100,000$', '500,000$']))
+    capital = int(capital.replace(',', '').replace('$', ''))
 
-    hp = st.slider('Select the Holding Period (years)', min_value = 5, max_value = 50, value = 10)
+    hp = st.slider('Select the Holding Period (years)', min_value=5, max_value=50, value=10)
 
     st.markdown('''### Portfolio 1''')
 
-    w1 = st.slider('Select Stocks Weight (%)', min_value = 0, max_value = 100, value = 60)
-    w2 = st.slider('Select Bonds Weight (%)',min_value = 0, max_value = 100, value = 25)
-    w3 = st.slider('Select Gold Weight (%)',min_value = 0, max_value = 100, value = 15)
+    w1 = st.slider('Select Stocks Weight (%)', min_value=0, max_value=100, value=60)
+    w2 = st.slider('Select Bonds Weight (%)', min_value=0, max_value=100, value=25)
+    w3 = st.slider('Select Gold Weight (%)', min_value=0, max_value=100, value=15)
 
     st.markdown('''### Portfolio 2''')
 
-    w11 = st.slider('Stocks Weight (%)', min_value = 0, max_value = 100, value = 30)
-    w22 = st.slider('Bonds Weight (%)',min_value = 0, max_value = 100, value = 60)
-    w33 = st.slider('Gold Weight (%)',min_value = 0, max_value = 100, value = 10)
-
+    w11 = st.slider('Stocks Weight (%)', min_value=0, max_value=100, value=30)
+    w22 = st.slider('Bonds Weight (%)', min_value=0, max_value=100, value=60)
+    w33 = st.slider('Gold Weight (%)', min_value=0, max_value=100, value=10)
 
     if w1 + w2 + w3 != 100:
         st.error('The sum of weights must be 100!')
